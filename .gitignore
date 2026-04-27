@@ -4,3 +4,4 @@ build/
 *.swp
 cmake-build-*/
 .DS_Store
+*.txt
