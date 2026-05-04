@@ -4,3 +4,6 @@ build/
 *.swp
 cmake-build-*/
 .DS_Store
+*.txt
+agent.log
+config.json

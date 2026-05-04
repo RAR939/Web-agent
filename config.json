@@ -1,11 +1,14 @@
+
 {
-    "uid": "test09",
-    "descr": "web-agent",
-    "access_code": "f5d018-21d7-7d99-0977-021fddbd",
+    "uid": "agent_0032",
+    "descr": "Web Agent",
+    "access_code": "8b4567-99bb-257a-d32d-072aa651",
     "poll_interval_seconds": 10,
+    "max_poll_interval_seconds": 300,
+    "min_poll_interval_seconds": 5,
     "api_base_url": "https://xdev.arkcom.ru:9999/app/webagent1/api",
     "agent_path": "./agent",
-    "result_directory": ".",
-    "param_format": "named",
-    "ignore_patterns": ["CMakeCache.txt", "CMakeFiles", "Makefile", "*.tmp", "*.swp"]
+    "result_directory": "./results",
+    "log_file": "agent.log",
+    "debug_mode": true
 }
