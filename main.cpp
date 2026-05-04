@@ -419,106 +419,107 @@ private:
     
     TaskResult handleFILE(const json& task) {
         TaskResult res;
-        std::string url = task.value("options", "");
+        res.exit_code = -1;
         
-        logger->task("═══ FILE ═══");
-        logger->info("URL: " + url);
+        std::string filename = task.value("options", "");
+        std::string session_id = task.value("session_id", "unknown");
         
-        if (url.empty()) { res.message = "пустой URL"; return res; }
+        logger->task("═══ FILE: Отправка файла на сервер ═══");
+        logger->info("Session: " + session_id);
+        logger->info("Файл: " + filename);
         
-        std::string filename;
-        size_t pos = url.find_last_of('/');
-        if (pos != std::string::npos) {
-            filename = url.substr(pos + 1);
-            size_t q = filename.find('?');
-            if (q != std::string::npos) filename = filename.substr(0, q);
-        }
-        if (filename.empty()) filename = "download";
-        
-        std::string save_path = normalizePath(cfg.result_dir + "/" + safeFilename(filename));
-        
-        CURL* curl = curl_easy_init();
-        FILE* file = fopen(save_path.c_str(), "wb");
-        
-        if (!curl || !file) {
-            res.message = "ошибка инициализации";
-            if (curl) curl_easy_cleanup(curl);
-            if (file) fclose(file);
+        if (filename.empty()) {
+            res.message = "пустое имя файла";
+            logger->error("Имя файла не указано");
             return res;
         }
         
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fwrite);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        // Ищем файл в папке результатов
+        std::string file_path = normalizePath(cfg.result_dir + "/" + filename);
         
-        CURLcode cr = curl_easy_perform(curl);
-        fclose(file);
-        curl_easy_cleanup(curl);
-        
-        if (cr == CURLE_OK) {
-            res.exit_code = 0;
-            res.files.push_back(save_path);
-            res.message = "файл скачан";
-            logger->ok("OK: " + filename);
-        } else {
-            res.message = "ошибка скачивания";
+        if (!fs::exists(file_path)) {
+            // Может быть файл в текущей папке
+            file_path = filename;
+            if (!fs::exists(file_path)) {
+                res.message = "файл не найден: " + filename;
+                res.output = "File not found: " + filename;
+                logger->error("Файл не найден: " + filename);
+                return res;
+            }
         }
+        
+        res.exit_code = 0;
+        res.files.push_back(file_path);
+        res.message = "файл загружен";
+        res.output = "File uploaded: " + filename;
+        
+        auto size = fs::file_size(file_path);
+        logger->ok("Файл найден: " + filename + " (" + std::to_string(size) + " байт)");
+        
         return res;
     }
     
     TaskResult handleCONF(const json& task) {
         TaskResult res;
+        res.exit_code = -1;
+        
         std::string options = task.value("options", "");
+        std::string session_id = task.value("session_id", "unknown");
         
-        logger->task(" CONF ");
+        logger->task("═══ CONF ═══");
+        logger->info("Options: " + options);
         
-        if (options.empty()) { res.message = "нет параметров"; return res; }
+        if (options.empty()) {
+            res.message = "нет параметров";
+            return res;
+        }
         
-        bool changed = false;
-        std::stringstream ss(options);
-        std::string param;
+        // Разбираем параметр=значение
+        size_t eq = options.find('=');
+        if (eq == std::string::npos) {
+            res.message = "неверный формат";
+            return res;
+        }
         
-        while (std::getline(ss, param, ',')) {
-            size_t eq = param.find('=');
-            if (eq != std::string::npos) {
-                std::string key = param.substr(0, eq);
-                std::string val = param.substr(eq + 1);
-                key.erase(0, key.find_first_not_of(" \t"));
-                key.erase(key.find_last_not_of(" \t") + 1);
-                val.erase(0, val.find_first_not_of(" \t"));
-                val.erase(val.find_last_not_of(" \t") + 1);
-                
-                if (key == "debug_mode") {
-                    cfg.debug = (val == "true" || val == "1");
-                    changed = true;
-                } else if (key == "poll_interval" || key == "poll_interval_seconds") {
-                    cfg.poll_interval = std::stoi(val);
-                    interval = cfg.poll_interval;
-                    changed = true;
-                } else if (key == "agent_path") {
-                    cfg.agent_path = normalizePath(val);
-                    changed = true;
-                }
+        std::string key = options.substr(0, eq);
+        std::string val = options.substr(eq + 1);
+        
+        // Читаем текущий конфиг как JSON
+        std::ifstream f(config_path);
+        json j;
+        f >> j;
+        f.close();
+        
+        // Сохраняем старое значение для ответа
+        std::string old_val = j.contains(key) ? j[key].dump() : "none";
+        
+        // Меняем значение (автоматически определится тип)
+        if (val == "true" || val == "false") {
+            j[key] = (val == "true");
+        } else {
+            try {
+                j[key] = std::stoi(val);  // пробуем число
+            } catch (...) {
+                j[key] = val;  // иначе строка
             }
         }
         
-        if (changed && saveConfig()) {
-            res.exit_code = 0;
-            res.message = "конфигурация обновлена";
-            logger->ok("OK");
-        } else if (!changed) {
-            res.exit_code = 0;
-            res.message = "нет изменений";
-        } else {
-            res.message = "ошибка сохранения";
-        }
+        // Сохраняем обратно
+        std::ofstream out(config_path);
+        out << j.dump(4);
+        out.close();
+        
+        // Обновляем текущий объект конфига
+        cfg = readConfig(config_path);
+        interval = cfg.poll_interval;
+        
+        res.exit_code = 0;
+        res.message = "конфигурация обновлена";
+        res.output = key + ": " + old_val + " -> " + val;
+        logger->ok("OK: " + key + " = " + val);
+        
         return res;
     }
-
     
     bool sendResult(const json& task, const TaskResult& res) {
         logger->info("Отправка результата...");
