@@ -243,7 +243,17 @@ Config readConfig(const std::string& path) {
     cfg.agent_path = j.value("agent_path", "./agent");
     cfg.result_dir = j.value("result_directory", "./results");
     cfg.log_file = j.value("log_file", "agent.log");
-    cfg.debug = j.value("debug_mode", false);
+    // Замени на:
+if (j.contains("debug_mode")) {
+    if (j["debug_mode"].is_boolean()) {
+        cfg.debug = j["debug_mode"].get<bool>();
+    } else if (j["debug_mode"].is_string()) {
+        std::string val = j["debug_mode"].get<std::string>();
+        cfg.debug = (val == "true" || val == "1");
+    }
+} else {
+    cfg.debug = false;
+}
     
     if (cfg.uid.empty() || cfg.api_url.empty()) {
         throw std::runtime_error("Missing required fields");
